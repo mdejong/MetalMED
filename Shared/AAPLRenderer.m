@@ -24,6 +24,8 @@ Implementation of renderer class which perfoms Metal setup and per frame renderi
 
 #import "Util.h"
 
+#import "PredictionMethods.h"
+
 const static unsigned int blockDim = HUFF_BLOCK_DIM;
 
 @interface AAPLRenderer ()
@@ -423,55 +425,64 @@ const static unsigned int blockDim = HUFF_BLOCK_DIM;
     
     NSMutableArray *mRowsOfDeltas = [NSMutableArray array];
     
-#if defined(IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING)
-    NSMutableData *mBlockInitData = [NSMutableData dataWithCapacity:(blockWidth * blockHeight)];
-#endif
-    
     for ( NSMutableData *blockData in mBlocks ) {
-      NSData *deltasData = [Huffman encodeSignedByteDeltas:blockData];
+      // Generate MED prediction residuals
+
+      NSMutableData *inPixelsData = [NSMutableData dataWithLength:blockData.length*sizeof(uint32_t)];
+      NSMutableData *deltaPixelsData = [NSMutableData dataWithLength:blockData.length*sizeof(uint32_t)];
       
-#if defined(IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING)
-      // When saving the first element of a block, do the deltas
-      // first and then pull out the first delta and set the delta
-      // byte to zero. This increases the count of the zero delta
-      // value and reduces the size of the generated tree while
-      // storing the block init value wo a huffman code.
-      {
-        NSMutableData *mDeltasData = [NSMutableData dataWithData:deltasData];
-        
-        uint8_t *bytePtr = mDeltasData.mutableBytes;
-        uint8_t firstByte = bytePtr[0];
-        bytePtr[0] = 0;
-        
-        [mBlockInitData appendBytes:&firstByte length:1];
-        
-        deltasData = [NSData dataWithData:mDeltasData];
+      const uint8_t *inSamplesPtr = (uint8_t *) blockData.bytes;
+      uint32_t *inSamplePixelsPtr = (uint32_t *) inPixelsData.bytes;
+      uint32_t *outPredErrPtr = (uint32_t *) deltaPixelsData.bytes;
+      
+      for ( int i = 0; i < blockData.length; i++ ) {
+        uint32_t bVal = inSamplesPtr[i];
+        inSamplePixelsPtr[i] = (0xFF << 24) | (bVal << 16) | (bVal << 8) | bVal;
       }
-#endif // IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING
       
-      [mRowsOfDeltas addObject:deltasData];
+      // Prediction API assumes 32BPP pixels, do 4x predictions and then keep only
+      // the B component.
+      
+      med_encode_pred32_error(inSamplePixelsPtr,
+                              outPredErrPtr,
+                              blockDim,
+                              blockDim,
+                              0,
+                              0,
+                              blockDim,
+                              blockDim);
       
 #if defined(DEBUG)
-      // Check that decoding generates the original input
-      
-# if defined(IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING)
-      // Undo setting of the first element to zero.
       {
-        uint8_t *initBytePtr = mBlockInitData.mutableBytes;
-        uint8_t firstByte = initBytePtr[mBlockInitData.length-1];
+        // Invert the prediction encoding to make sure the decoded result matches
         
-        NSMutableData *mDeltasData = [NSMutableData dataWithData:deltasData];
-        uint8_t *deltasBytePtr = mDeltasData.mutableBytes;
+        NSMutableData *decodedPixelsData = [NSMutableData dataWithLength:blockData.length*sizeof(uint32_t)];
+        uint32_t *decodedPixelsPtr = (uint32_t *) decodedPixelsData.bytes;
         
-        deltasBytePtr[0] = firstByte;
+        med_decode_pred32_error(outPredErrPtr, decodedPixelsPtr,
+                                blockDim,
+                                blockDim,
+                                0,
+                                0,
+                                blockDim,
+                                blockDim);
         
-        deltasData = [NSData dataWithData:mDeltasData];
+        int cmp = memcmp(decodedPixelsPtr, inSamplePixelsPtr, blockData.length*sizeof(uint32_t));
+        assert(cmp == 0);
       }
-# endif // IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING
-      
-      NSData *decodedDeltas = [Huffman decodeSignedByteDeltas:deltasData];
-      NSAssert([decodedDeltas isEqualToData:blockData], @"decoded deltas");
 #endif // DEBUG
+
+      // Extract byte values from B component
+      
+      NSMutableData *deltasData = [NSMutableData dataWithLength:blockData.length];
+      uint8_t *deltasDataPtr = (uint8_t *) deltasData.bytes;
+      
+      for ( int i = 0; i < blockData.length; i++ ) {
+        uint8_t bVal = outPredErrPtr[i] & 0xFF;
+        deltasDataPtr[i] = bVal;
+      }
+      
+      [mRowsOfDeltas addObject:deltasData];
     }
     
     // Write delta values back over outBlockOrderSymbolsPtr
@@ -485,10 +496,6 @@ const static unsigned int blockDim = HUFF_BLOCK_DIM;
         outBlockOrderSymbolsPtr[outWritei++] = ptr[i];
       }
     }
-    
-#if defined(IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING)
-    _blockInitData = [NSData dataWithData:mBlockInitData];
-#endif
   }
 #else
   // Store init data as all zeros
