@@ -258,14 +258,99 @@ uint8_t decode_one_huffman_symbol(
                                           currentNumBits);
   numBitsRead += hls.bitWidth;
   
-#if defined(IMPL_DELTAS_BEFORE_HUFF_ENCODING)
-  uint8_t outSymbol = (prevSymbol + hls.symbol) & 0xFF;
-  prevSymbol = outSymbol;
-#else
+//#if defined(IMPL_DELTAS_BEFORE_HUFF_ENCODING)
+//  uint8_t outSymbol = (prevSymbol + hls.symbol) & 0xFF;
+//  prevSymbol = outSymbol;
+//#else
   uint8_t outSymbol = hls.symbol;
-#endif // IMPL_DELTAS_BEFORE_HUFF_ENCODING
+//#endif // IMPL_DELTAS_BEFORE_HUFF_ENCODING
   
   return outSymbol;
+}
+
+ushort min3_ushort(ushort a, ushort b, ushort c) {
+  return min(a, min(b, c));
+}
+
+ushort max3_ushort(ushort a, ushort b, ushort c) {
+  return max(a, max(b, c));
+}
+
+// MED predictor, operates on values in a 16 bit registers
+
+ushort med_predict(ushort a, ushort b, ushort c) {
+  // The next couple of calculations make use of signed integer
+  // math, though the returned result will never be smaller
+  // than the min or larger than the max, so there should
+  // not be an issue with this method returning values
+  // outside the byte range if the original input is in the
+  // byte range.
+  
+  short p = a + b - c;
+  
+  // Find the min and max value of the 3 input values
+  
+  short min = min3_ushort(a, b, c);
+  short max = max3_ushort(a, b, c);
+  
+  // Note that the compare here is done in terms of a signed
+  // integer but that the min and max are known to be in terms
+  // of an unsigned int, so the result will never be less than
+  // min or larger than max.
+  
+  short clamped = clamp(p, min, max);
+  
+  return ushort(clamped);
+}
+
+ushort med_predict8(thread uint8_t samples[HUFF_BLOCK_DIM*HUFF_BLOCK_DIM], ushort width, ushort height, ushort x, ushort y, ushort offset) {
+  // indexes must be signed so that they can be negative at top or left edge
+  
+  short upOffset = offset - width;
+  short upLeftOffset = upOffset - 1;
+  short leftOffset = offset - 1;
+  
+  uint8_t upSample;
+  uint8_t upLeftSample;
+  uint8_t leftSample;
+  
+  // In the case of column 0, the L and UL samples should be treated as missing
+  // as opposed to reading values from the end of the previous row.
+  
+  if (x == 0) {
+    leftOffset = -1;
+    upLeftOffset = -1;
+  }
+  
+  // left = a
+  
+  if (leftOffset < 0) {
+    leftSample = 0x0;
+  } else {
+    leftSample = samples[leftOffset];
+  }
+  
+  // up = b
+  
+  if (upOffset < 0) {
+    upSample = 0x0;
+  } else {
+    upSample = samples[upOffset];
+  }
+  
+  // upLeft = c
+  
+  if (upLeftOffset < 0) {
+    upLeftSample = 0x0;
+  } else {
+    upLeftSample = samples[upLeftOffset];
+  }
+  
+  // Execute predictor for each of the 4 components
+  
+  ushort symbol = med_predict(leftSample, upSample, upLeftSample);
+  
+  return symbol;
 }
 
 // Huffman compute kernel, this logic executes once for each
@@ -304,20 +389,27 @@ huffB8Kernel(
   ushort numBitsRead = 0;
   ushort prevSymbol = 0;
   
-  uint8_t rowCache[blockDim];
+  uint8_t rowCache[blockDim*blockDim];
   
   for ( ushort y = 0; y < blockDim; y++ ) {
     // Decompress 4 symbols at a time and then write as a 32 bit BGRA pixel
 
     for ( ushort x = 0; x < blockDim; x++ ) {
-      // Read huff code based on offset into block
+      // Read huff code based on offset into block, add decoded residual to predicted pixel
       
-      uint8_t symbol = decode_one_huffman_symbol(numBitsReadForBlockRoot, numBitsRead, prevSymbol, huffBuff, huffSymbolTable1, huffSymbolTable2);
-      rowCache[x] = symbol;
+      uint8_t residual = decode_one_huffman_symbol(numBitsReadForBlockRoot, numBitsRead, prevSymbol, huffBuff, huffSymbolTable1, huffSymbolTable2);
+      
+      ushort offset = (y * blockDim) + x;
+      ushort pred = med_predict8(rowCache, blockDim, blockDim, x, y, offset);
+      ushort outSymbol = (pred + residual) & 0xFF;
+      
+      rowCache[offset] = outSymbol;
     }
-    
+  }
+
+  for ( ushort y = 0; y < blockDim; y++ ) {
     for ( ushort x = 0; x < numPixelsInBlockWidth; x++ ) {
-      ushort po = x * numSymbolsPerPixel;
+      ushort po = (y * blockDim) + (x * numSymbolsPerPixel);
       uint8_t B = rowCache[po+0];
       uint8_t G = rowCache[po+1];
       uint8_t R = rowCache[po+2];
