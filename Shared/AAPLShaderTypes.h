@@ -107,45 +107,30 @@ typedef enum AAPLHuffmanTextureIndex
 } AAPLHuffmanTextureIndex;
 
 #define IMPL_DELTAS_BEFORE_HUFF_ENCODING
-//#define IMPL_DELTAS_AND_INIT_ZERO_DELTA_BEFORE_HUFF_ENCODING
 
 #define HUFF_BLOCK_DIM 8
 
 /*
 
-Compute kernel dimensions
+ MED 8x8
  
-4x4
-
-inNumBytes    3145728
-outNumBytes   2034638
-
-8x8
-
-inNumBytes    3145728
-outNumBytes   1923390
-
-12 x 12
-
-inNumBytes    3151872
-outNumBytes   1898629
-
-16 x 16
-
-inNumBytes    3145728
-outNumBytes   1882155
-
-32 x 32
-
-inNumBytes    3145728
-outNumBytes   1865541
+ inNumBytes    3145728
+ outNumBytes   1815952
  
-(reduced compute shader performance below this point)
+ MED 16x16
  
-64 x 64
+ inNumBytes    3145728
+ outNumBytes   1776440
+ 
+ MED 32x32
+ 
+ inNumBytes    3145728
+ outNumBytes   1764168
 
-inNumBytes    3145728
-outNumBytes   1858362
+ MED 64x64
+ 
+ inNumBytes    3145728
+ outNumBytes   1760065
  
 */
 
