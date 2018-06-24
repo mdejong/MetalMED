@@ -278,7 +278,7 @@ ushort max3_ushort(ushort a, ushort b, ushort c) {
 
 // MED predictor, operates on values in a 16 bit registers
 
-ushort med_predict(ushort a, ushort b, ushort c) {
+ushort med_predict(const ushort a, const ushort b, const ushort c) {
   // The next couple of calculations make use of signed integer
   // math, though the returned result will never be smaller
   // than the min or larger than the max, so there should
@@ -303,7 +303,7 @@ ushort med_predict(ushort a, ushort b, ushort c) {
   return ushort(clamped);
 }
 
-ushort med_predict8(thread uint8_t samples[HUFF_BLOCK_DIM*HUFF_BLOCK_DIM], ushort width, ushort height, ushort x, ushort y, ushort offset) {
+ushort med_predict8(thread uint8_t samples[HUFF_BLOCK_DIM*HUFF_BLOCK_DIM], const ushort width, const ushort height, const ushort x, const ushort y, const ushort offset) {
   // indexes must be signed so that they can be negative at top or left edge
   
   short upOffset = offset - width;

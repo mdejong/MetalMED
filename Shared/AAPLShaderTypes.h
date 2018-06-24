@@ -112,6 +112,11 @@ typedef enum AAPLHuffmanTextureIndex
 
 /*
 
+ MED 4x4
+ 
+ inNumBytes    3145728
+ outNumBytes   1943659
+ 
  MED 8x8
  
  inNumBytes    3145728
