@@ -108,7 +108,7 @@ typedef enum AAPLHuffmanTextureIndex
 
 #define IMPL_DELTAS_BEFORE_HUFF_ENCODING
 
-#define HUFF_BLOCK_DIM 8
+#define HUFF_BLOCK_DIM 16
 
 /*
 
@@ -117,12 +117,12 @@ typedef enum AAPLHuffmanTextureIndex
  inNumBytes    3145728
  outNumBytes   1943659
  
- MED 8x8
+ MED 8x8 (15.0 ms fullscreen)
  
  inNumBytes    3145728
  outNumBytes   1815952
  
- MED 16x16
+ MED 16x16 (20.0 ms fullscreen)
  
  inNumBytes    3145728
  outNumBytes   1776440
